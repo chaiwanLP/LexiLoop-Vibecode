@@ -1,11 +1,10 @@
-import { eq } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users } from "../drizzle/schema";
+import { InsertUser, users, InsertVocabulary, vocabulary, InsertDailyPuzzle, dailyPuzzles, InsertAttempt, attempts, InsertStreak, streaks } from "../drizzle/schema";
 import { ENV } from './_core/env';
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
-// Lazily create the drizzle instance so local tooling can run without a DB.
 export async function getDb() {
   if (!_db && process.env.DATABASE_URL) {
     try {
@@ -89,4 +88,189 @@ export async function getUserByOpenId(openId: string) {
   return result.length > 0 ? result[0] : undefined;
 }
 
-// TODO: add feature queries here as your schema grows.
+// ============ Vocabulary (admin-managed bank) ============
+
+export async function listVocabulary() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(vocabulary).orderBy(desc(vocabulary.createdAt));
+}
+
+export async function listActiveVocabulary() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(vocabulary).where(eq(vocabulary.active, "yes"));
+}
+
+export async function getVocabularyById(id: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const rows = await db.select().from(vocabulary).where(eq(vocabulary.id, id)).limit(1);
+  return rows[0];
+}
+
+export async function insertVocabulary(v: InsertVocabulary) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  return db.insert(vocabulary).values(v);
+}
+
+export async function updateVocabulary(id: number, v: Partial<InsertVocabulary>) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  return db.update(vocabulary).set(v).where(eq(vocabulary.id, id));
+}
+
+export async function deleteVocabulary(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  return db.delete(vocabulary).where(eq(vocabulary.id, id));
+}
+
+// ============ Daily Puzzles ============
+
+export async function getDailyPuzzle(
+  userId: number,
+  date: string,
+  type: "anagram" | "definition" | "fillblank",
+  difficulty: "easy" | "medium" | "hard"
+) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const rows = await db
+    .select()
+    .from(dailyPuzzles)
+    .where(
+      and(
+        eq(dailyPuzzles.userId, userId),
+        eq(dailyPuzzles.puzzleDate, date),
+        eq(dailyPuzzles.puzzleType, type),
+        eq(dailyPuzzles.difficulty, difficulty)
+      )
+    )
+    .limit(1);
+  return rows[0];
+}
+
+export async function insertDailyPuzzle(p: InsertDailyPuzzle) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  return db.insert(dailyPuzzles).values(p);
+}
+
+// ============ Attempts / Scores ============
+
+export async function upsertAttempt(userId: number, dailyPuzzleId: number, a: InsertAttempt) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  return db.insert(attempts).values(a).onDuplicateKeyUpdate({
+    set: {
+      timeMs: a.timeMs,
+      hintsUsed: a.hintsUsed,
+      revealed: a.revealed,
+      score: a.score,
+      maxPossibleScore: a.maxPossibleScore,
+      success: a.success,
+    },
+  });
+}
+
+export async function getUserAttempt(userId: number, dailyPuzzleId: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const rows = await db
+    .select()
+    .from(attempts)
+    .where(and(eq(attempts.userId, userId), eq(attempts.dailyPuzzleId, dailyPuzzleId)))
+    .limit(1);
+  return rows[0];
+}
+
+/** Daily attempts summary for a user (all dates) */
+export async function getUserAttemptsSummary(userId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select({
+      puzzleDate: dailyPuzzles.puzzleDate,
+      puzzleType: dailyPuzzles.puzzleType,
+      difficulty: dailyPuzzles.difficulty,
+      score: attempts.score,
+      maxPossibleScore: attempts.maxPossibleScore,
+      hintsUsed: attempts.hintsUsed,
+      revealed: attempts.revealed,
+      success: attempts.success,
+      createdAt: attempts.createdAt,
+    })
+    .from(attempts)
+    .innerJoin(dailyPuzzles, eq(attempts.dailyPuzzleId, dailyPuzzles.id))
+    .where(eq(attempts.userId, userId))
+    .orderBy(desc(dailyPuzzles.puzzleDate));
+}
+
+// ============ Streaks ============
+
+export async function upsertStreak(userId: number, date: string, solved: boolean) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  return db.insert(streaks).values({ userId, activityDate: date, puzzlesSolved: solved ? 1 : 0 }).onDuplicateKeyUpdate({
+    set: { puzzlesSolved: solved ? 1 : 0 },
+  });
+}
+
+export async function getUserStreakDates(userId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db
+    .select({ activityDate: streaks.activityDate, puzzlesSolved: streaks.puzzlesSolved })
+    .from(streaks)
+    .where(and(eq(streaks.userId, userId), gte(streaks.puzzlesSolved, 1)))
+    .orderBy(streaks.activityDate);
+  return rows.map((r) => r.activityDate);
+}
+
+// ============ Leaderboard ============
+
+function startOfWeek(date: Date): Date {
+  const d = new Date(date);
+  const day = d.getDay(); // 0 = Sunday
+  d.setDate(d.getDate() - day);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+function startOfMonth(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth(), 1, 0, 0, 0, 0);
+}
+
+export async function getLeaderboard(range: "week" | "month") {
+  const db = await getDb();
+  if (!db) return { ranges: [] as unknown[] };
+  const now = new Date();
+  const from = range === "week" ? startOfWeek(now) : startOfMonth(now);
+  const rows = await db
+    .select({
+      userId: attempts.userId,
+      userName: users.name,
+      totalScore: sql<number>`SUM(${attempts.score})`.as("totalScore"),
+      gamesPlayed: sql<number>`COUNT(*)`.as("gamesPlayed"),
+    })
+    .from(attempts)
+    .innerJoin(users, eq(attempts.userId, users.id))
+    .where(gte(attempts.createdAt, from))
+    .groupBy(attempts.userId, users.name)
+    .orderBy(desc(sql`totalScore`))
+    .limit(50);
+  return { range, from: from.toISOString(), rows };
+}
+
+export async function getUserTotalScore(userId: number) {
+  const db = await getDb();
+  if (!db) return 0;
+  const rows = await db
+    .select({ totalScore: sql<number>`SUM(${attempts.score})`.as("totalScore") })
+    .from(attempts)
+    .where(eq(attempts.userId, userId))
+    .limit(1);
+  return Number(rows[0]?.totalScore ?? 0);
+}
