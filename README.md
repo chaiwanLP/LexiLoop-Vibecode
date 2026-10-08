@@ -2,7 +2,7 @@
 
 LexiLoops คือเกมฝึกคำศัพท์รายวันสำหรับองค์กร ช่วยพนักงานทำความเข้าใจคำศัพท์เฉพาะทางและคำศัพท์ผลิตภัณฑ์ผ่านปริศนาคำสามรูปแบบ พร้อมระบบความยาก ใบ้คำ การนับ streak และความคืบหน้าแบบทีม
 
-เว็บไซต์เผยแพร่ที่ [lexiloops-dxjw4uyp.manus.space](https://lexiloops-dxjw4uyp.manus.space)
+เว็บไซต์เผยแพร่ที่ [lexi-loop-vibecode.vercel.app](https://lexi-loop-vibecode.vercel.app)
 
 ## ฟีเจอร์หลัก
 
