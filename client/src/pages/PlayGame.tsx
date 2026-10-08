@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { Link, useParams } from "wouter";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { startLogin } from "@/const";
 import { Button } from "@/components/ui/button";
 import { PUZZLE_TYPES, DIFFICULTIES, DIFFICULTY_SETTINGS, type PuzzleType } from "../../../shared/game";
 import AppShell from "@/components/AppShell";
@@ -38,10 +37,10 @@ export default function PlayGame() {
         <div className="container py-24 text-center fade-up">
           <h1 className="text-2xl font-bold mb-3">เข้าสู่ระบบเพื่อเริ่มเล่นเกม</h1>
           <p className="text-muted-foreground mb-6">
-            LexiLoops ใช้บัญชีองค์กร (Manus OAuth) เท่านั้นในการบันทึกคะแนนและสตreak
+            เข้าสู่ระบบด้วยบัญชีองค์กรเพื่อบันทึกคะแนนและสตรีค
           </p>
-          <Button size="lg" onClick={() => startLogin()} className="btn-press">
-            เข้าสู่ระบบ
+          <Button size="lg" asChild className="btn-press">
+            <Link href="/login">เข้าสู่ระบบ</Link>
           </Button>
         </div>
       </AppShell>

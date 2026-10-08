@@ -9,7 +9,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { startLogin } from "@/const";
 import { Flame, Home, Trophy, BookOpen, UserRound, ShieldCheck } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 
@@ -122,10 +121,10 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
               </DropdownMenu>
             ) : (
               <Button
-                onClick={() => startLogin()}
+                asChild
                 className="btn-press bg-ink text-white hover:bg-ink/90"
               >
-                เข้าสู่ระบบ
+                <Link href="/login">เข้าสู่ระบบ</Link>
               </Button>
             )}
           </div>

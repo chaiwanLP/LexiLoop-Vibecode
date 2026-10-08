@@ -1,12 +1,17 @@
 // Seed script: inserts the internal vocabulary bank if empty.
-// Run: node scripts/seed-words.mjs (requires DATABASE_URL in env)
+// Run: pnpm db:seed (requires DATABASE_URL in env, Neon Postgres)
 import "dotenv/config";
-import { drizzle } from "drizzle-orm/mysql2";
+import pg from "pg";
+import { drizzle } from "drizzle-orm/node-postgres";
 import { vocabulary } from "../drizzle/schema";
-import { eq } from "drizzle-orm";
 import fs from "node:fs";
 
-const db = drizzle(process.env.DATABASE_URL);
+const { Pool } = pg;
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: process.env.DATABASE_URL?.includes("neon.tech") ? { rejectUnauthorized: false } : undefined,
+});
+const db = drizzle(pool);
 
 const words = JSON.parse(fs.readFileSync(new URL("./seed-words.json", import.meta.url), "utf-8"));
 
@@ -32,8 +37,7 @@ for (const w of words) {
     existingWords.add(w.word);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    if (msg.includes("Duplicate") || msg.includes("ER_DUP_ENTRY")) {
-      // Another process added it concurrently
+    if (msg.includes("Duplicate") || msg.includes("duplicate") || msg.includes("unique")) {
       existingWords.add(w.word);
       skipped++;
       continue;
@@ -43,4 +47,5 @@ for (const w of words) {
 }
 
 console.log(`Seeded ${added} new words (${skipped} skipped)`);
+await pool.end();
 process.exit(0);

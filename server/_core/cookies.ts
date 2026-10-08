@@ -39,10 +39,16 @@ export function getSessionCookieOptions(
   //       ? hostname
   //       : undefined;
 
+  // Cross-site (Vercel -> Railway) requires SameSite=None + Secure.
+  // Localhost over http can't set Secure, so fall back to Lax there.
+  const secure = isSecureRequest(req) || process.env.NODE_ENV === "production";
+  if (!secure) {
+    return { httpOnly: true, path: "/", sameSite: "lax", secure: false };
+  }
   return {
     httpOnly: true,
     path: "/",
     sameSite: "none",
-    secure: isSecureRequest(req),
+    secure: true,
   };
 }

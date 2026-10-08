@@ -1,17 +1,33 @@
-import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, uniqueIndex } from "drizzle-orm/mysql-core";
+import {
+  pgTable,
+  pgEnum,
+  serial,
+  integer,
+  varchar,
+  text,
+  timestamp,
+  uniqueIndex,
+} from "drizzle-orm/pg-core";
+
+export const roleEnum = pgEnum("role", ["user", "admin"]);
+export const difficultyEnum = pgEnum("difficulty", ["easy", "medium", "hard"]);
+export const yesNoEnum = pgEnum("yes_no", ["yes", "no"]);
+export const puzzleTypeEnum = pgEnum("puzzle_type", ["anagram", "definition", "fillblank"]);
 
 /**
- * Core user table backing auth flow.
+ * Core user table backing local JWT auth flow (email + password).
+ * openId kept for backwards compat: local users use `local:<email>`.
  */
-export const users = mysqlTable("users", {
-  id: int("id").autoincrement().primaryKey(),
+export const users = pgTable("users", {
+  id: serial("id").primaryKey(),
   openId: varchar("openId", { length: 64 }).notNull().unique(),
   name: text("name"),
-  email: varchar("email", { length: 320 }),
+  email: varchar("email", { length: 320 }).unique(),
+  passwordHash: text("passwordHash"),
   loginMethod: varchar("loginMethod", { length: 64 }),
-  role: mysqlEnum("role", ["user", "admin"]).default("user").notNull(),
+  role: roleEnum("role").default("user").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
   lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull(),
 });
 
@@ -21,20 +37,20 @@ export type InsertUser = typeof users.$inferInsert;
 /**
  * Company vocabulary bank (internal-only word pool, seeded/managed by admins).
  */
-export const vocabulary = mysqlTable(
+export const vocabulary = pgTable(
   "vocabulary",
   {
-    id: int("id").autoincrement().primaryKey(),
+    id: serial("id").primaryKey(),
     word: varchar("word", { length: 80 }).notNull(),
     /** Thai definition, can contain blanks {{}} for fill-in-the-blank puzzles */
     definition: text("definition").notNull(),
-    difficulty: mysqlEnum("difficulty", ["easy", "medium", "hard"]).default("easy").notNull(),
+    difficulty: difficultyEnum("difficulty").default("easy").notNull(),
     category: varchar("category", { length: 80 }),
     /** e.g. 'API' or 'SLA' — for fill-in-the-blank display variants */
     blanks: text("blanks"),
-    active: mysqlEnum("active", ["yes", "no"]).default("yes").notNull(),
+    active: yesNoEnum("active").default("yes").notNull(),
     createdAt: timestamp("createdAt").defaultNow().notNull(),
-    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().notNull(),
   },
   (t) => ({
     wordUq: uniqueIndex("vocabulary_word_uq").on(t.word),
@@ -48,21 +64,21 @@ export type InsertVocabulary = typeof vocabulary.$inferInsert;
  * Daily puzzle snapshot: deterministic per (date, puzzleType, difficulty, userId).
  * Stores the generated puzzle so each user sees consistent content per day.
  */
-export const dailyPuzzles = mysqlTable(
+export const dailyPuzzles = pgTable(
   "dailyPuzzles",
   {
-    id: int("id").autoincrement().primaryKey(),
-    userId: int("userId").notNull(),
+    id: serial("id").primaryKey(),
+    userId: integer("userId").notNull(),
     puzzleDate: varchar("puzzleDate", { length: 10 }).notNull(), // 'YYYY-MM-DD' (user local date)
-    puzzleType: mysqlEnum("puzzleType", ["anagram", "definition", "fillblank"]).notNull(),
-    difficulty: mysqlEnum("difficulty", ["easy", "medium", "hard"]).notNull(),
-    vocabId: int("vocabId").notNull(),
+    puzzleType: puzzleTypeEnum("puzzleType").notNull(),
+    difficulty: difficultyEnum("difficulty").notNull(),
+    vocabId: integer("vocabId").notNull(),
     word: varchar("word", { length: 80 }).notNull(),
     definition: text("definition").notNull(),
     blanks: text("blanks"),
     /** JSON: anagram letter arrangement / choices for definition / blank indices */
     payload: text("payload"),
-    solved: mysqlEnum("solved", ["yes", "no"]).default("no").notNull(),
+    solved: yesNoEnum("solved").default("no").notNull(),
     createdAt: timestamp("createdAt").defaultNow().notNull(),
   },
   (t) => ({
@@ -76,21 +92,21 @@ export type InsertDailyPuzzle = typeof dailyPuzzles.$inferInsert;
 /**
  * Game attempt: records each play and the score earned.
  */
-export const attempts = mysqlTable(
+export const attempts = pgTable(
   "attempts",
   {
-    id: int("id").autoincrement().primaryKey(),
-    userId: int("userId").notNull(),
-    dailyPuzzleId: int("dailyPuzzleId").notNull(),
-    puzzleType: mysqlEnum("puzzleType", ["anagram", "definition", "fillblank"]).notNull(),
-    difficulty: mysqlEnum("difficulty", ["easy", "medium", "hard"]).notNull(),
+    id: serial("id").primaryKey(),
+    userId: integer("userId").notNull(),
+    dailyPuzzleId: integer("dailyPuzzleId").notNull(),
+    puzzleType: puzzleTypeEnum("puzzleType").notNull(),
+    difficulty: difficultyEnum("difficulty").notNull(),
     /** milliseconds spent on the attempt */
-    timeMs: int("timeMs").notNull().default(0),
-    hintsUsed: int("hintsUsed").notNull().default(0),
-    revealed: mysqlEnum("revealed", ["yes", "no"]).default("no").notNull(),
-    score: int("score").notNull().default(0),
-    maxPossibleScore: int("maxPossibleScore").notNull().default(0),
-    success: mysqlEnum("success", ["yes", "no"]).default("no").notNull(),
+    timeMs: integer("timeMs").notNull().default(0),
+    hintsUsed: integer("hintsUsed").notNull().default(0),
+    revealed: yesNoEnum("revealed").default("no").notNull(),
+    score: integer("score").notNull().default(0),
+    maxPossibleScore: integer("maxPossibleScore").notNull().default(0),
+    success: yesNoEnum("success").default("no").notNull(),
     createdAt: timestamp("createdAt").defaultNow().notNull(),
   },
   (t) => ({
@@ -104,13 +120,13 @@ export type InsertAttempt = typeof attempts.$inferInsert;
 /**
  * Daily streak tracking: one row per (user, date).
  */
-export const streaks = mysqlTable(
+export const streaks = pgTable(
   "streaks",
   {
-    id: int("id").autoincrement().primaryKey(),
-    userId: int("userId").notNull(),
+    id: serial("id").primaryKey(),
+    userId: integer("userId").notNull(),
     activityDate: varchar("activityDate", { length: 10 }).notNull(), // 'YYYY-MM-DD'
-    puzzlesSolved: int("puzzlesSolved").notNull().default(0),
+    puzzlesSolved: integer("puzzlesSolved").notNull().default(0),
     createdAt: timestamp("createdAt").defaultNow().notNull(),
   },
   (t) => ({

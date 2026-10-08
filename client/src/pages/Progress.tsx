@@ -1,6 +1,5 @@
 import { Link } from "wouter";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { startLogin } from "@/const";
 import { trpc } from "@/lib/trpc";
 import AppShell from "@/components/AppShell";
 import { PUZZLE_TYPES, DIFFICULTIES } from "../../../shared/game";
@@ -54,8 +53,8 @@ export default function Progress() {
       <AppShell>
         <div className="container py-24 text-center fade-up">
           <h1 className="text-2xl font-bold mb-3">เข้าสู่ระบบเพื่อดูความคืบหน้าของคุณ</h1>
-          <Button size="lg" onClick={() => startLogin()} className="btn-press">
-            เข้าสู่ระบบ
+          <Button size="lg" asChild className="btn-press">
+            <Link href="/login">เข้าสู่ระบบ</Link>
           </Button>
         </div>
       </AppShell>

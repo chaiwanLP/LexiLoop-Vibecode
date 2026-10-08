@@ -1,14 +1,23 @@
-import { and, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users, InsertVocabulary, vocabulary, InsertDailyPuzzle, dailyPuzzles, InsertAttempt, attempts, InsertStreak, streaks } from "../drizzle/schema";
+import { and, desc, eq, gte, sql } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/node-postgres";
+import pg from "pg";
+import { InsertUser, users, InsertVocabulary, vocabulary, InsertDailyPuzzle, dailyPuzzles, InsertAttempt, attempts, streaks } from "../drizzle/schema";
 import { ENV } from './_core/env';
 
+const { Pool } = pg;
+
 let _db: ReturnType<typeof drizzle> | null = null;
+let _pool: InstanceType<typeof Pool> | null = null;
 
 export async function getDb() {
   if (!_db && process.env.DATABASE_URL) {
     try {
-      _db = drizzle(process.env.DATABASE_URL);
+      _pool = new Pool({
+        connectionString: process.env.DATABASE_URL,
+        // Neon requires SSL
+        ssl: process.env.DATABASE_URL.includes("neon.tech") ? { rejectUnauthorized: false } : undefined,
+      });
+      _db = drizzle(_pool);
     } catch (error) {
       console.warn("[Database] Failed to connect:", error);
       _db = null;
@@ -34,14 +43,14 @@ export async function upsertUser(user: InsertUser): Promise<void> {
     };
     const updateSet: Record<string, unknown> = {};
 
-    const textFields = ["name", "email", "loginMethod"] as const;
+    const textFields = ["name", "email", "loginMethod", "passwordHash"] as const;
     type TextField = (typeof textFields)[number];
 
     const assignNullable = (field: TextField) => {
       const value = user[field];
       if (value === undefined) return;
       const normalized = value ?? null;
-      values[field] = normalized;
+      (values as Record<string, unknown>)[field] = normalized;
       updateSet[field] = normalized;
     };
 
@@ -66,8 +75,11 @@ export async function upsertUser(user: InsertUser): Promise<void> {
     if (Object.keys(updateSet).length === 0) {
       updateSet.lastSignedIn = new Date();
     }
+    // keep updatedAt fresh on conflict
+    updateSet.updatedAt = new Date();
 
-    await db.insert(users).values(values).onDuplicateKeyUpdate({
+    await db.insert(users).values(values).onConflictDoUpdate({
+      target: users.openId,
       set: updateSet,
     });
   } catch (error) {
@@ -85,6 +97,13 @@ export async function getUserByOpenId(openId: string) {
 
   const result = await db.select().from(users).where(eq(users.openId, openId)).limit(1);
 
+  return result.length > 0 ? result[0] : undefined;
+}
+
+export async function getUserByEmail(email: string) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select().from(users).where(eq(users.email, email)).limit(1);
   return result.length > 0 ? result[0] : undefined;
 }
 
@@ -118,7 +137,7 @@ export async function insertVocabulary(v: InsertVocabulary) {
 export async function updateVocabulary(id: number, v: Partial<InsertVocabulary>) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  return db.update(vocabulary).set(v).where(eq(vocabulary.id, id));
+  return db.update(vocabulary).set({ ...v, updatedAt: new Date() }).where(eq(vocabulary.id, id));
 }
 
 export async function deleteVocabulary(id: number) {
@@ -155,7 +174,7 @@ export async function getDailyPuzzle(
 export async function insertDailyPuzzle(p: InsertDailyPuzzle) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  return db.insert(dailyPuzzles).values(p);
+  return db.insert(dailyPuzzles).values(p).onConflictDoNothing();
 }
 
 // ============ Attempts / Scores ============
@@ -163,16 +182,21 @@ export async function insertDailyPuzzle(p: InsertDailyPuzzle) {
 export async function upsertAttempt(userId: number, dailyPuzzleId: number, a: InsertAttempt) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  return db.insert(attempts).values(a).onDuplicateKeyUpdate({
-    set: {
-      timeMs: a.timeMs,
-      hintsUsed: a.hintsUsed,
-      revealed: a.revealed,
-      score: a.score,
-      maxPossibleScore: a.maxPossibleScore,
-      success: a.success,
-    },
-  });
+  return db
+    .insert(attempts)
+    .values(a)
+    .onConflictDoUpdate({
+      // uses unique index attempt_uq(userId, dailyPuzzleId)
+      target: [attempts.userId, attempts.dailyPuzzleId],
+      set: {
+        timeMs: a.timeMs,
+        hintsUsed: a.hintsUsed,
+        revealed: a.revealed,
+        score: a.score,
+        maxPossibleScore: a.maxPossibleScore,
+        success: a.success,
+      },
+    });
 }
 
 export async function getUserAttempt(userId: number, dailyPuzzleId: number) {
@@ -213,9 +237,13 @@ export async function getUserAttemptsSummary(userId: number) {
 export async function upsertStreak(userId: number, date: string, solved: boolean) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  return db.insert(streaks).values({ userId, activityDate: date, puzzlesSolved: solved ? 1 : 0 }).onDuplicateKeyUpdate({
-    set: { puzzlesSolved: solved ? 1 : 0 },
-  });
+  return db
+    .insert(streaks)
+    .values({ userId, activityDate: date, puzzlesSolved: solved ? 1 : 0 })
+    .onConflictDoUpdate({
+      target: [streaks.userId, streaks.activityDate],
+      set: { puzzlesSolved: solved ? 1 : 0 },
+    });
 }
 
 export async function getUserStreakDates(userId: number) {
@@ -259,7 +287,7 @@ export async function getLeaderboard(range: "week" | "month") {
     .innerJoin(users, eq(attempts.userId, users.id))
     .where(gte(attempts.createdAt, from))
     .groupBy(attempts.userId, users.name)
-    .orderBy(desc(sql`totalScore`))
+    .orderBy(desc(sql`SUM(${attempts.score})`))
     .limit(50);
   return { range, from: from.toISOString(), rows };
 }
@@ -268,7 +296,7 @@ export async function getUserTotalScore(userId: number) {
   const db = await getDb();
   if (!db) return 0;
   const rows = await db
-    .select({ totalScore: sql<number>`SUM(${attempts.score})`.as("totalScore") })
+    .select({ totalScore: sql<number>`COALESCE(SUM(${attempts.score}), 0)`.as("totalScore") })
     .from(attempts)
     .where(eq(attempts.userId, userId))
     .limit(1);

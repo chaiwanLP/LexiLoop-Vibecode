@@ -10,11 +10,15 @@ import Progress from "./pages/Progress";
 import Leaderboard from "./pages/Leaderboard";
 import Vocabulary from "./pages/Vocabulary";
 import AdminWords from "./pages/AdminWords";
+import Login from "./pages/Login";
+import Register from "./pages/Register";
 
 function Router() {
   return (
     <Switch>
       <Route path={"/"} component={Home} />
+      <Route path={"/login"} component={Login} />
+      <Route path={"/register"} component={Register} />
       <Route path={"/play/:type"} component={PlayGame} />
       <Route path={"/progress"} component={Progress} />
       <Route path={"/leaderboard"} component={Leaderboard} />

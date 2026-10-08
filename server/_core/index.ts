@@ -1,13 +1,14 @@
 import "dotenv/config";
 import express from "express";
+import cookieParser from "cookie-parser";
+import cors from "cors";
 import { createServer } from "http";
 import net from "net";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
-import { registerOAuthRoutes } from "./oauth";
-import { registerStorageProxy } from "./storageProxy";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
+import { ENV } from "./env";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -31,11 +32,30 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
 async function startServer() {
   const app = express();
   const server = createServer(app);
+  app.set("trust proxy", 1);
+  // CORS for split deploy: Vercel frontend -> Railway backend
+  const allowedOrigins = [ENV.frontendUrl, process.env.VITE_FRONTEND_URL, process.env.FRONTEND_URL]
+    .filter(Boolean) as string[];
+  app.use(
+    cors({
+      origin: (origin, cb) => {
+        if (!origin) return cb(null, true); // curl / health checks
+        if (allowedOrigins.length === 0) return cb(null, true); // monolith mode
+        if (allowedOrigins.includes(origin)) return cb(null, true);
+        if (/^http:\/\/localhost(:\d+)?$/.test(origin)) return cb(null, true);
+        if (/^http:\/\/127\.0\.0\.1(:\d+)?$/.test(origin)) return cb(null, true);
+        return cb(null, false);
+      },
+      credentials: true,
+    })
+  );
   // Configure body parser with larger size limit for file uploads
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
-  registerStorageProxy(app);
-  registerOAuthRoutes(app);
+  app.use(cookieParser());
+  app.get("/api/health", (_req, res) => {
+    res.json({ ok: true, time: new Date().toISOString() });
+  });
   // tRPC API
   app.use(
     "/api/trpc",

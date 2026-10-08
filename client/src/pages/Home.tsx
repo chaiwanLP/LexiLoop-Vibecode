@@ -1,7 +1,6 @@
 import { useEffect } from "react";
 import { Link, useLocation } from "wouter";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { startLogin } from "@/const";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import {
@@ -87,10 +86,12 @@ export default function Home() {
             {!isAuthenticated && !loading && (
               <Button
                 size="lg"
-                onClick={() => startLogin()}
+                asChild
                 className="btn-press mt-6 bg-mint-deep text-primary-foreground hover:bg-mint-deep/90 h-12 px-8 text-base"
               >
-                เข้าสู่ระบบเพื่อเริ่มเล่น <ArrowRight className="w-5 h-5 ml-1" />
+                <Link href="/login">
+                  เข้าสู่ระบบเพื่อเริ่มเล่น <ArrowRight className="w-5 h-5 ml-1" />
+                </Link>
               </Button>
             )}
             {isAuthenticated && (
@@ -151,7 +152,7 @@ export default function Home() {
               delay={i * 70}
               onPlay={() => {
                 if (!isAuthenticated) {
-                  startLogin();
+                  navigate("/login");
                   return;
                 }
                 navigate(`/play/${pt.key}`);

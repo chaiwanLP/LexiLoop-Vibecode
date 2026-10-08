@@ -4,6 +4,7 @@ import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import * as db from "./db";
+import { loginLocalUser, registerLocalUser } from "./auth";
 import { generatePuzzle, SCORING_RULES } from "./gameLogic";
 import { todayString, computeScore, DIFFICULTY_SETTINGS, SCORING } from "../shared/game";
 import { z } from "zod";
@@ -21,7 +22,53 @@ const DIFFICULTY = z.enum(["easy", "medium", "hard"]);
 export const appRouter = router({
   system: systemRouter,
   auth: router({
-    me: publicProcedure.query(opts => opts.ctx.user),
+    me: publicProcedure.query(opts => {
+      if (!opts.ctx.user) return null;
+      const { passwordHash: _omit, ...safe } = opts.ctx.user;
+      return safe;
+    }),
+    register: publicProcedure
+      .input(
+        z.object({
+          email: z.string().email("รูปแบบอีเมลไม่ถูกต้อง"),
+          password: z.string().min(8, "รหัสผ่านต้องยาวอย่างน้อย 8 ตัว"),
+          name: z.string().max(120).optional(),
+        })
+      )
+      .mutation(async ({ input, ctx }) => {
+        try {
+          const { user, token } = await registerLocalUser(input);
+          const cookieOptions = getSessionCookieOptions(ctx.req);
+          ctx.res.cookie(COOKIE_NAME, token, { ...cookieOptions, maxAge: 1000 * 60 * 60 * 24 * 365 });
+          const { passwordHash: _omit, ...safe } = user;
+          return { success: true as const, user: safe };
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : "สมัครสมาชิกไม่สำเร็จ";
+          if ((err as { code?: string }).code === "CONFLICT") {
+            throw new TRPCError({ code: "CONFLICT", message: msg });
+          }
+          throw new TRPCError({ code: "BAD_REQUEST", message: msg });
+        }
+      }),
+    login: publicProcedure
+      .input(
+        z.object({
+          email: z.string().email("รูปแบบอีเมลไม่ถูกต้อง"),
+          password: z.string().min(1, "กรุณากรอกรหัสผ่าน"),
+        })
+      )
+      .mutation(async ({ input, ctx }) => {
+        try {
+          const { user, token } = await loginLocalUser(input);
+          const cookieOptions = getSessionCookieOptions(ctx.req);
+          ctx.res.cookie(COOKIE_NAME, token, { ...cookieOptions, maxAge: 1000 * 60 * 60 * 24 * 365 });
+          const { passwordHash: _omit, ...safe } = user;
+          return { success: true as const, user: safe };
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : "เข้าสู่ระบบไม่สำเร็จ";
+          throw new TRPCError({ code: "UNAUTHORIZED", message: msg });
+        }
+      }),
     logout: publicProcedure.mutation(({ ctx }) => {
       const cookieOptions = getSessionCookieOptions(ctx.req);
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
@@ -51,7 +98,7 @@ export const appRouter = router({
           await db.insertVocabulary({ ...input, active: input.active });
         } catch (err: unknown) {
           const msg = err instanceof Error ? err.message : String(err);
-          if (msg.includes("Duplicate")) {
+          if (msg.toLowerCase().includes("duplicate") || msg.toLowerCase().includes("unique")) {
             throw new TRPCError({ code: "CONFLICT", message: "คำนี้มีอยู่ในคลังคำแล้ว" });
           }
           throw err;
@@ -118,7 +165,7 @@ export const appRouter = router({
             added++;
           } catch (err: unknown) {
             const msg = err instanceof Error ? err.message : String(err);
-            if (msg.includes("Duplicate")) {
+            if (msg.toLowerCase().includes("duplicate") || msg.toLowerCase().includes("unique")) {
               skipped++;
             } else {
               throw err;
