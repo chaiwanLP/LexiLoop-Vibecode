@@ -53,10 +53,11 @@ lexiloops/
 | ชั้น | เทคโนโลยี |
 |---|---|
 | Frontend | React 19, Vite 7, Tailwind CSS 4, wouter, shadcn/ui, Radix, Sonner, Framer Motion |
-| Backend | Express 4, tRPC 11 (ข้อความใต้ `/api/trpc`), zod, superjson |
-| Database | MySQL/TiDB ผ่าน drizzle-orm (schema-first + migration) |
-| Auth | Manus OAuth (session cookie, `protectedProcedure` / `adminProcedure`) |
+| Backend | Express 4, tRPC 11 (ใต้ `/api/trpc`), zod, superjson, cors + cookie-parser |
+| Database | Postgres (Supabase) ผ่าน drizzle-orm + `pg` (schema-first + migration) |
+| Auth | JWT email/password (bcryptjs + jose, session cookie, `protectedProcedure` / `adminProcedure`) |
 | Testing | Vitest 2 |
+| Deploy | Vercel (frontend) + Render (backend) + Supabase (database) |
 
 ## การติดตั้งและรันในเครื่อง
 
