@@ -7,9 +7,13 @@ import { vocabulary } from "../drizzle/schema";
 import fs from "node:fs";
 
 const { Pool } = pg;
+const dbUrl = process.env.DATABASE_URL ?? "";
+const needsSeedSsl =
+  /neon\.tech|supabase\.co|pooler\.supabase\.com|sslmode=require/.test(dbUrl) &&
+  !/localhost|127\.0\.0\.1/.test(dbUrl);
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: process.env.DATABASE_URL?.includes("neon.tech") ? { rejectUnauthorized: false } : undefined,
+  ssl: needsSeedSsl ? { rejectUnauthorized: false } : undefined,
 });
 const db = drizzle(pool);
 

@@ -12,10 +12,15 @@ let _pool: InstanceType<typeof Pool> | null = null;
 export async function getDb() {
   if (!_db && process.env.DATABASE_URL) {
     try {
+      const url = process.env.DATABASE_URL;
+      // Managed Postgres (Neon / Supabase / Render / etc.) requires SSL.
+      // Local docker (localhost) does not.
+      const needsSsl =
+        /neon\.tech|supabase\.co|pooler\.supabase\.com|sslmode=require/.test(url) &&
+        !/localhost|127\.0\.0\.1/.test(url);
       _pool = new Pool({
-        connectionString: process.env.DATABASE_URL,
-        // Neon requires SSL
-        ssl: process.env.DATABASE_URL.includes("neon.tech") ? { rejectUnauthorized: false } : undefined,
+        connectionString: url,
+        ssl: needsSsl ? { rejectUnauthorized: false } : undefined,
       });
       _db = drizzle(_pool);
     } catch (error) {
